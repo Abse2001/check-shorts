@@ -2,6 +2,7 @@ import { CircuitToCanvasDrawer } from "circuit-to-canvas";
 import type { AnyCircuitElement, PcbRenderLayer, PcbTrace } from "circuit-json";
 import type { Bounds } from "@tscircuit/math-utils";
 import { BitmapCanvasContext } from "./bitmap-canvas";
+import type { CopperElement } from "./bitmap-copper-groups";
 
 const getTraceLayerSegments = (
   trace: PcbTrace,
@@ -38,7 +39,7 @@ const getTraceLayerSegments = (
 };
 
 const getPcbLayerElements = (
-  elements: AnyCircuitElement[],
+  elements: CopperElement[],
   layer: "top" | "bottom",
 ): AnyCircuitElement[] => {
   const layerElements: AnyCircuitElement[] = [];
@@ -61,7 +62,7 @@ export const createPcbGroupMask = ({
   height,
   layer,
 }: {
-  elements: AnyCircuitElement[];
+  elements: CopperElement[];
   bounds: Bounds;
   width: number;
   height: number;

@@ -1,12 +1,10 @@
-import {
-  cju,
-  getBoardBounds as getPcbBoardBounds,
-} from "@tscircuit/circuit-json-util";
+import { getBoardBounds as getPcbBoardBounds } from "@tscircuit/circuit-json-util";
 import type { Bounds } from "@tscircuit/math-utils";
 import type { AnyCircuitElement } from "circuit-json";
+import { isPcbBoard } from "./circuit-json-narrowing";
 
 export const getBoardBounds = (circuitJson: AnyCircuitElement[]): Bounds => {
-  const board = cju(circuitJson).pcb_board.list()[0];
+  const board = circuitJson.find(isPcbBoard);
 
   if (!board) {
     return { minX: -10, maxX: 10, minY: -10, maxY: 10 };

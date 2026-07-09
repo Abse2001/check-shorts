@@ -24,6 +24,7 @@ import { getBoardBounds, getRealPointFromPixel } from "./bitmap-geometry";
 import { assertGerberLayerCanBeGenerated } from "./gerber-layer";
 import { createGerberGroupMask } from "./gerber-mask";
 import { createPcbGroupMask } from "./pcb-mask";
+import { getNonDiagnosticCircuitJson } from "./circuit-json-narrowing";
 import type {
   BitmapShort,
   BitmapShortDebugRender,
@@ -392,19 +393,22 @@ export const renderBitmapShortDebug = async (
 ): Promise<BitmapShortDebugRender> => {
   const layer = options.layer ?? "top";
   const mode = options.mode ?? "pcb";
-  const connMap = getFullConnectivityMapFromCircuitJson(circuitJson);
+  const nonDiagnosticCircuitJson = getNonDiagnosticCircuitJson(circuitJson);
+  const connMap = getFullConnectivityMapFromCircuitJson(
+    nonDiagnosticCircuitJson,
+  );
   const bounds = getBoardBounds(circuitJson);
   const { width, height } = getBitmapDimensions(bounds, options);
-  const db = cju(circuitJson);
+  const db = cju(nonDiagnosticCircuitJson);
   const connectivityGroups = buildConnectivityGroups({
-    circuitJson,
+    circuitJson: nonDiagnosticCircuitJson,
     connMap,
     db,
     layer,
   });
 
   if (mode === "gerber") {
-    assertGerberLayerCanBeGenerated(circuitJson, layer);
+    assertGerberLayerCanBeGenerated(nonDiagnosticCircuitJson, layer);
   }
 
   const pixelOwners = new Array<string | undefined>(width * height);
