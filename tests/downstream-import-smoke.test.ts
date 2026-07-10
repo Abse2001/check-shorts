@@ -32,9 +32,7 @@ const run = (command: string, args: string[], cwd: string) => {
   return result;
 };
 
-test("downstream TypeScript consumers can statically import package exports", () => {
-  run("bun", ["run", "build"], repoRoot);
-
+const createLinkedConsumer = () => {
   const consumerRoot = mkdtempSync(join(tmpdir(), "check-shorts-consumer-"));
   const scopedNodeModules = join(consumerRoot, "node_modules", "@tscircuit");
   mkdirSync(scopedNodeModules, { recursive: true });
@@ -57,6 +55,14 @@ test("downstream TypeScript consumers can statically import package exports", ()
       2,
     ),
   );
+
+  return consumerRoot;
+};
+
+test("downstream TypeScript consumers can statically import package exports", () => {
+  run("bun", ["run", "build"], repoRoot);
+
+  const consumerRoot = createLinkedConsumer();
 
   writeFileSync(
     join(consumerRoot, "tsconfig.json"),
@@ -104,4 +110,94 @@ test("downstream TypeScript consumers can statically import package exports", ()
   );
   expect(packageJson.exports["."].types).toBe("./dist/index.d.ts");
   expect(packageJson.exports["."].import).toBe("./dist/index.js");
+}, 30_000);
+
+test("bundled CLI workflow can load package exports from consumer node_modules", () => {
+  run("bun", ["run", "build"], repoRoot);
+
+  const consumerRoot = createLinkedConsumer();
+  const cliDistRoot = join(
+    consumerRoot,
+    "node_modules",
+    "@tscircuit",
+    "cli",
+    "dist",
+    "cli",
+  );
+  mkdirSync(cliDistRoot, { recursive: true });
+
+  writeFileSync(
+    join(cliDistRoot, "main.js"),
+    [
+      'const checkShortsPackageName = ["@tscircuit", "check-shorts"].join("/");',
+      "const loadCheckShorts = async () => await import(checkShortsPackageName);",
+      "const {",
+      "  appendBitmapLegend,",
+      "  createShortDebugSvg,",
+      "  encodeRgbaPng,",
+      "  renderBitmapShortDebug,",
+      "} = await loadCheckShorts();",
+      "if (typeof appendBitmapLegend !== 'function') throw new Error('missing appendBitmapLegend');",
+      "if (typeof createShortDebugSvg !== 'function') throw new Error('missing createShortDebugSvg');",
+      "if (typeof encodeRgbaPng !== 'function') throw new Error('missing encodeRgbaPng');",
+      "if (typeof renderBitmapShortDebug !== 'function') throw new Error('missing renderBitmapShortDebug');",
+      "const svg = createShortDebugSvg([], []);",
+      "if (!svg.includes('<svg')) throw new Error('expected SVG debug output');",
+      "const png = encodeRgbaPng({ width: 1, height: 1, rgba: new Uint8Array([0, 0, 0, 255]) });",
+      "if (!(png instanceof Uint8Array) || png.length === 0) throw new Error('expected PNG bytes');",
+      "console.log('check-shorts cli workflow loaded');",
+    ].join("\n"),
+  );
+
+  const result = run("bun", [join(cliDistRoot, "main.js")], consumerRoot);
+  expect(result.stdout).toContain("check-shorts cli workflow loaded");
+}, 30_000);
+
+test("static CLI import can be bundled and executed", () => {
+  run("bun", ["run", "build"], repoRoot);
+
+  const consumerRoot = createLinkedConsumer();
+  const bundleOutdir = join(consumerRoot, "bundle");
+
+  writeFileSync(
+    join(consumerRoot, "static-cli-import.ts"),
+    [
+      "import {",
+      "  appendBitmapLegend,",
+      "  createShortDebugSvg,",
+      "  encodeRgbaPng,",
+      "  renderBitmapShortDebug,",
+      '} from "@tscircuit/check-shorts";',
+      "",
+      "if (typeof appendBitmapLegend !== 'function') throw new Error('missing appendBitmapLegend');",
+      "if (typeof createShortDebugSvg !== 'function') throw new Error('missing createShortDebugSvg');",
+      "if (typeof encodeRgbaPng !== 'function') throw new Error('missing encodeRgbaPng');",
+      "if (typeof renderBitmapShortDebug !== 'function') throw new Error('missing renderBitmapShortDebug');",
+      "const svg = createShortDebugSvg([], []);",
+      "if (!svg.includes('<svg')) throw new Error('expected SVG debug output');",
+      "const png = encodeRgbaPng({ width: 1, height: 1, rgba: new Uint8Array([0, 0, 0, 255]) });",
+      "if (!(png instanceof Uint8Array) || png.length === 0) throw new Error('expected PNG bytes');",
+      "console.log('check-shorts static bundle loaded');",
+    ].join("\n"),
+  );
+
+  run(
+    "bun",
+    [
+      "build",
+      "static-cli-import.ts",
+      "--target=node",
+      "--format=esm",
+      "--outdir",
+      bundleOutdir,
+    ],
+    consumerRoot,
+  );
+
+  const result = run(
+    "bun",
+    [join(bundleOutdir, "static-cli-import.js")],
+    consumerRoot,
+  );
+  expect(result.stdout).toContain("check-shorts static bundle loaded");
 }, 30_000);

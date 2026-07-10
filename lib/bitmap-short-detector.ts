@@ -22,8 +22,6 @@ import {
 } from "./bitmap-debug-overlay";
 import { getBoardBounds, getRealPointFromPixel } from "./bitmap-geometry";
 import { assertGerberLayerCanBeGenerated } from "./gerber-layer";
-import { createGerberGroupMask } from "./gerber-mask";
-import { createPcbGroupMask } from "./pcb-mask";
 import type {
   BitmapShort,
   BitmapShortDebugRender,
@@ -216,9 +214,11 @@ const createGroupMask = async ({
   mode: "pcb" | "gerber";
 }): Promise<Uint8Array> => {
   if (mode === "gerber") {
+    const { createGerberGroupMask } = await import("./gerber-mask");
     return createGerberGroupMask({ elements, bounds, width, height, layer });
   }
 
+  const { createPcbGroupMask } = await import("./pcb-mask");
   return createPcbGroupMask({ elements, bounds, width, height, layer });
 };
 
