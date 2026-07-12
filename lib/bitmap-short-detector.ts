@@ -54,6 +54,14 @@ interface PixelRect {
   height: number;
 }
 
+interface BitmapMask {
+  rect: PixelRect;
+  mask: Uint8Array;
+}
+
+const COPPER_POUR_PAINT_PRIORITY = 1;
+const OTHER_COPPER_PAINT_PRIORITY = 2;
+
 const includePointInBounds = (
   bounds: Bounds | null,
   point: { x: number; y: number },
@@ -318,6 +326,79 @@ const getBoundsFromPixelRect = ({
   };
 };
 
+const createBitmapMask = async ({
+  elements,
+  boardBounds,
+  width,
+  height,
+  layer,
+  mode,
+}: {
+  elements: CopperElement[];
+  boardBounds: Bounds;
+  width: number;
+  height: number;
+  layer: "top" | "bottom";
+  mode: "pcb" | "gerber";
+}): Promise<BitmapMask | null> => {
+  const groupBounds = getGroupBounds({ elements, boardBounds });
+  const rect = getPixelRectFromBounds({
+    bounds: groupBounds,
+    boardBounds,
+    width,
+    height,
+  });
+  if (rect.width === 0 || rect.height === 0) return null;
+
+  const maskBounds = getBoundsFromPixelRect({
+    rect,
+    boardBounds,
+    width,
+    height,
+  });
+  const mask = await createGroupMask({
+    elements,
+    bounds: maskBounds,
+    width: rect.width,
+    height: rect.height,
+    layer,
+    mode,
+  });
+
+  return { rect, mask };
+};
+
+const paintBitmapMask = ({
+  bitmapMask,
+  color,
+  priority,
+  width,
+  rgba,
+  paintPriorities,
+}: {
+  bitmapMask: BitmapMask;
+  color: [number, number, number];
+  priority: 1 | 2;
+  width: number;
+  rgba: Uint8Array;
+  paintPriorities: Uint8Array;
+}): void => {
+  const { mask, rect } = bitmapMask;
+
+  for (let i = 0; i < mask.length; i++) {
+    if (mask[i] === 0) continue;
+    const localX = i % rect.width;
+    const localY = Math.floor(i / rect.width);
+    const pixelIndex = (rect.y + localY) * width + rect.x + localX;
+
+    // Higher-priority copper is drawn on top; ties retain the first group's
+    // deterministic color.
+    if (paintPriorities[pixelIndex]! >= priority) continue;
+    paintPriorities[pixelIndex] = priority;
+    setRgbaPixel(rgba, pixelIndex, color);
+  }
+};
+
 const createShortsFromPixelGroups = ({
   shortPixelGroups,
   bounds,
@@ -410,6 +491,7 @@ export const renderBitmapShortDebug = async (
   const pixelOwners = new Array<string | undefined>(width * height);
   const shortPixelGroupMap = new Map<string, ShortPixelGroup>();
   const rgba = new Uint8Array(width * height * 4);
+  const paintPriorities = new Uint8Array(width * height);
 
   for (let i = 0; i < width * height; i++) {
     setRgbaPixel(rgba, i, [0, 0, 0]);
@@ -422,34 +504,22 @@ export const renderBitmapShortDebug = async (
 
   for (const [key, elements] of sortedConnectivityGroups) {
     const color = getDebugColorForConnectivityKey(key);
-    const groupBounds = getGroupBounds({ elements, boardBounds: bounds });
-    const rect = getPixelRectFromBounds({
-      bounds: groupBounds,
-      boardBounds: bounds,
-      width,
-      height,
-    });
-    if (rect.width === 0 || rect.height === 0) continue;
-    const maskBounds = getBoundsFromPixelRect({
-      rect,
-      boardBounds: bounds,
-      width,
-      height,
-    });
-    const mask = await createGroupMask({
+    const bitmapMask = await createBitmapMask({
       elements,
-      bounds: maskBounds,
-      width: rect.width,
-      height: rect.height,
+      boardBounds: bounds,
+      width,
+      height,
       layer,
       mode,
     });
+    if (!bitmapMask) continue;
 
-    for (let i = 0; i < mask.length; i++) {
-      if (mask[i] === 0) continue;
-      const localX = i % rect.width;
-      const localY = Math.floor(i / rect.width);
-      const globalPixelIndex = (rect.y + localY) * width + rect.x + localX;
+    for (let i = 0; i < bitmapMask.mask.length; i++) {
+      if (bitmapMask.mask[i] === 0) continue;
+      const localX = i % bitmapMask.rect.width;
+      const localY = Math.floor(i / bitmapMask.rect.width);
+      const globalPixelIndex =
+        (bitmapMask.rect.y + localY) * width + bitmapMask.rect.x + localX;
 
       const existingOwner = pixelOwners[globalPixelIndex];
       if (existingOwner && existingOwner !== key) {
@@ -479,8 +549,76 @@ export const renderBitmapShortDebug = async (
         }
       } else if (!existingOwner) {
         pixelOwners[globalPixelIndex] = key;
-        setRgbaPixel(rgba, globalPixelIndex, color);
       }
+    }
+
+    const copperPourElements = elements.filter(
+      (element) => element.type === "pcb_copper_pour",
+    );
+    const nonPourElements = elements.filter(
+      (element) => element.type !== "pcb_copper_pour",
+    );
+
+    if (copperPourElements.length === 0) {
+      paintBitmapMask({
+        bitmapMask,
+        color,
+        priority: OTHER_COPPER_PAINT_PRIORITY,
+        width,
+        rgba,
+        paintPriorities,
+      });
+      continue;
+    }
+
+    if (nonPourElements.length === 0) {
+      paintBitmapMask({
+        bitmapMask,
+        color,
+        priority: COPPER_POUR_PAINT_PRIORITY,
+        width,
+        rgba,
+        paintPriorities,
+      });
+      continue;
+    }
+
+    const copperPourMask = await createBitmapMask({
+      elements: copperPourElements,
+      boardBounds: bounds,
+      width,
+      height,
+      layer,
+      mode,
+    });
+    if (copperPourMask) {
+      paintBitmapMask({
+        bitmapMask: copperPourMask,
+        color,
+        priority: COPPER_POUR_PAINT_PRIORITY,
+        width,
+        rgba,
+        paintPriorities,
+      });
+    }
+
+    const nonPourMask = await createBitmapMask({
+      elements: nonPourElements,
+      boardBounds: bounds,
+      width,
+      height,
+      layer,
+      mode,
+    });
+    if (nonPourMask) {
+      paintBitmapMask({
+        bitmapMask: nonPourMask,
+        color,
+        priority: OTHER_COPPER_PAINT_PRIORITY,
+        width,
+        rgba,
+        paintPriorities,
+      });
     }
   }
 
