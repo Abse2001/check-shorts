@@ -14,8 +14,10 @@ test("renders a copper bridge short candidate PCB snapshot", async () => {
   await circuit.renderUntilSettled();
 
   const bridgedCircuitJson = appendCopperBridgeTrace(circuit.getCircuitJson(), {
-    start: { x: -2.2, y: 0 },
-    end: { x: 2.2, y: 0 },
+    // Cross the existing R1-to-C1 trace at the board center so the bitmap
+    // snapshot contains one, unambiguous short beneath its marker.
+    start: { x: 0, y: -2.2 },
+    end: { x: 0, y: 2.2 },
   });
   const pcbTraces = bridgedCircuitJson.filter(
     (element) => element.type === "pcb_trace",
@@ -40,8 +42,8 @@ test("renders a copper bridge short candidate PCB snapshot", async () => {
     { mode: "gerber" },
   );
 
-  expect(pcbShorts.length).toBe(2);
-  expect(gerberShorts.length).toBe(2);
+  expect(pcbShorts.length).toBe(1);
+  expect(gerberShorts.length).toBe(1);
   expect(
     pcbShorts.every((short) =>
       short.secondOwnerLabels.includes("pcb_trace_short_bridge"),

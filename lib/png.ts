@@ -260,7 +260,7 @@ export const appendBitmapLegend = (
     width,
     x: 96,
     y: legendY,
-    text: "RED:SHORT MARKER ORANGE:PORT BLACK:UNASSIGNED",
+    text: "MAGENTA:SHORT MARKER ORANGE:PORT BLACK:UNASSIGNED",
     color: [0, 0, 0],
   });
 
