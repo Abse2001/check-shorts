@@ -107,93 +107,6 @@ const drawDebugCircleOutline = ({
   }
 };
 
-const drawDebugFilledCircle = ({
-  rgba,
-  width,
-  height,
-  center,
-  radius,
-  color,
-  alpha,
-}: {
-  rgba: Uint8Array;
-  width: number;
-  height: number;
-  center: { x: number; y: number };
-  radius: number;
-  color: [number, number, number];
-  alpha: number;
-}): void => {
-  const minX = Math.max(0, Math.floor(center.x - radius));
-  const maxX = Math.min(width - 1, Math.ceil(center.x + radius));
-  const minY = Math.max(0, Math.floor(center.y - radius));
-  const maxY = Math.min(height - 1, Math.ceil(center.y + radius));
-
-  for (let y = minY; y <= maxY; y++) {
-    for (let x = minX; x <= maxX; x++) {
-      const distance = Math.hypot(x + 0.5 - center.x, y + 0.5 - center.y);
-      if (distance <= radius) {
-        blendRgbaPixel(rgba, y * width + x, color, alpha);
-      }
-    }
-  }
-};
-
-const drawDebugLine = ({
-  rgba,
-  width,
-  height,
-  start,
-  end,
-  color,
-  alpha,
-  strokeWidth = 1.5,
-}: {
-  rgba: Uint8Array;
-  width: number;
-  height: number;
-  start: { x: number; y: number };
-  end: { x: number; y: number };
-  color: [number, number, number];
-  alpha: number;
-  strokeWidth?: number;
-}): void => {
-  const strokeRadius = strokeWidth / 2;
-  const minX = Math.max(0, Math.floor(Math.min(start.x, end.x) - strokeRadius));
-  const maxX = Math.min(
-    width - 1,
-    Math.ceil(Math.max(start.x, end.x) + strokeRadius),
-  );
-  const minY = Math.max(0, Math.floor(Math.min(start.y, end.y) - strokeRadius));
-  const maxY = Math.min(
-    height - 1,
-    Math.ceil(Math.max(start.y, end.y) + strokeRadius),
-  );
-  const lineLength = Math.hypot(end.x - start.x, end.y - start.y);
-  if (lineLength === 0) return;
-
-  for (let y = minY; y <= maxY; y++) {
-    for (let x = minX; x <= maxX; x++) {
-      const px = x + 0.5;
-      const py = y + 0.5;
-      const t = Math.max(
-        0,
-        Math.min(
-          1,
-          ((px - start.x) * (end.x - start.x) +
-            (py - start.y) * (end.y - start.y)) /
-            lineLength ** 2,
-        ),
-      );
-      const nearestX = start.x + (end.x - start.x) * t;
-      const nearestY = start.y + (end.y - start.y) * t;
-      if (Math.hypot(px - nearestX, py - nearestY) <= strokeRadius) {
-        blendRgbaPixel(rgba, y * width + x, color, alpha);
-      }
-    }
-  }
-};
-
 export const overlayPcbPortMarkers = ({
   circuitJson,
   bounds,
@@ -242,7 +155,9 @@ export const overlayShortMarkers = ({
   height: number;
   rgba: Uint8Array;
 }): void => {
-  const markerColor: [number, number, number] = [155, 92, 255];
+  // Magenta is outside the generated copper palette (whose RGB components are
+  // all at least 80) and is not used by the orange PCB-port marker.
+  const markerColor: [number, number, number] = [255, 0, 255];
 
   for (const short of shorts) {
     const point = getPixelPointFromReal({
@@ -258,38 +173,19 @@ export const overlayShortMarkers = ({
       width,
       height,
       center: point,
-      radius: 12,
+      radius: 14,
       color: markerColor,
-      alpha: 0.65,
-      strokeWidth: 3,
+      alpha: 1,
+      strokeWidth: 4,
     });
-    drawDebugFilledCircle({
+    drawDebugCircleOutline({
       rgba,
       width,
       height,
       center: point,
-      radius: 4,
+      radius: 6,
       color: markerColor,
-      alpha: 0.4,
-    });
-    drawDebugLine({
-      rgba,
-      width,
-      height,
-      start: { x: point.x - 16, y: point.y },
-      end: { x: point.x + 16, y: point.y },
-      color: markerColor,
-      alpha: 0.65,
-      strokeWidth: 3,
-    });
-    drawDebugLine({
-      rgba,
-      width,
-      height,
-      start: { x: point.x, y: point.y - 16 },
-      end: { x: point.x, y: point.y + 16 },
-      color: markerColor,
-      alpha: 0.65,
+      alpha: 1,
       strokeWidth: 3,
     });
   }

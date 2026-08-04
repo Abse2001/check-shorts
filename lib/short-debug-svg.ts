@@ -105,10 +105,8 @@ export const createShortDebugSvg = (
       return `
   <g data-type="short-debug" data-mode="${escapeXml(short.mode)}" data-layer="${escapeXml(short.layer)}">
     <title>${escapeXml(text)}</title>
-    <circle cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="12" fill="none" stroke="${shortMarkerStroke}" stroke-width="3" stroke-opacity="0.65"/>
-    <circle cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="4" fill="${shortMarkerStroke}" fill-opacity="0.4"/>
-    <line x1="${(point.x - 16).toFixed(2)}" y1="${point.y.toFixed(2)}" x2="${(point.x + 16).toFixed(2)}" y2="${point.y.toFixed(2)}" stroke="${shortMarkerStroke}" stroke-width="3" stroke-opacity="0.65"/>
-    <line x1="${point.x.toFixed(2)}" y1="${(point.y - 16).toFixed(2)}" x2="${point.x.toFixed(2)}" y2="${(point.y + 16).toFixed(2)}" stroke="${shortMarkerStroke}" stroke-width="3" stroke-opacity="0.65"/>
+    <circle cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="14" fill="none" stroke="${shortMarkerStroke}" stroke-width="4"/>
+    <circle cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="6" fill="none" stroke="${shortMarkerStroke}" stroke-width="3"/>
   </g>`;
     })
     .join("");
