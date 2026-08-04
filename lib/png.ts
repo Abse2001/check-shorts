@@ -1,5 +1,12 @@
 import { deflateSync } from "node:zlib";
 import { decode } from "fast-png";
+import {
+  glyphAdvanceRatio,
+  glyphWidthRatio,
+  spaceWidthRatio,
+  strokeWidthRatio,
+  svgAlphabet,
+} from "@tscircuit/alphabet";
 import type {
   BitmapShortDebugLegendEntry,
   BitmapShortDebugRender,
@@ -98,18 +105,47 @@ const getLegendLabel = (entry: BitmapShortDebugLegendEntry): string => {
   return labels.length > 36 ? `${labels.slice(0, 33)}...` : labels;
 };
 
-const escapeXml = (value: string): string =>
-  value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
-
 const markerLegend = [
   { color: "#ff00ff", label: "Short marker" },
   { color: "#ffa500", label: "PCB port" },
   { color: "#000000", label: "Unassigned" },
 ] as const;
+
+const createAlphabetTextSvg = ({
+  text,
+  x,
+  top,
+  size,
+  maxWidth,
+}: {
+  text: string;
+  x: number;
+  top: number;
+  size: number;
+  maxWidth?: number;
+}): string => {
+  let cursorX = 0;
+  const paths: string[] = [];
+
+  for (const character of text) {
+    const path = svgAlphabet[character as keyof typeof svgAlphabet];
+    if (path) {
+      paths.push(`<path d="${path}" transform="translate(${cursorX} 0)"/>`);
+    }
+    cursorX +=
+      glyphAdvanceRatio[character] ??
+      (character === " " ? spaceWidthRatio : glyphWidthRatio);
+  }
+
+  const renderedSize =
+    maxWidth === undefined || cursorX === 0
+      ? size
+      : Math.min(size, maxWidth / cursorX);
+
+  // Alphabet paths start around y=0.24, so offset the normalized glyph space
+  // to make `top` the visible top edge of each line.
+  return `<g fill="none" stroke="#111" stroke-width="${strokeWidthRatio}" stroke-linecap="round" stroke-linejoin="round" transform="translate(${x} ${top - 0.24 * renderedSize}) scale(${renderedSize})">${paths.join("")}</g>`;
+};
 
 const createBitmapLegendSvg = ({
   width,
@@ -126,23 +162,30 @@ const createBitmapLegendSvg = ({
     ...markerLegend.map(
       (entry, index) => `
     <rect x="10" y="${headerHeight + index * rowHeight + 3}" width="14" height="10" rx="1" fill="${entry.color}"/>
-    <text x="32" y="${headerHeight + index * rowHeight + 13}" class="legend-label">${entry.label}</text>`,
+    ${createAlphabetTextSvg({
+      text: entry.label,
+      x: 32,
+      top: headerHeight + index * rowHeight + 2,
+      size: 16,
+      maxWidth: width - 42,
+    })}`,
     ),
     ...legend.map(
       (entry, index) => `
     <rect x="10" y="${headerHeight + (markerLegend.length + index) * rowHeight + 3}" width="14" height="10" rx="1" fill="rgb(${entry.color.join(",")})"/>
-    <text x="32" y="${headerHeight + (markerLegend.length + index) * rowHeight + 13}" class="legend-label">${escapeXml(getLegendLabel(entry))}</text>`,
+    ${createAlphabetTextSvg({
+      text: getLegendLabel(entry),
+      x: 32,
+      top: headerHeight + (markerLegend.length + index) * rowHeight + 2,
+      size: 16,
+      maxWidth: width - 42,
+    })}`,
     ),
   ].join("");
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
-  <style>
-    text { font-family: Arial, Helvetica, sans-serif; fill: #111; text-rendering: geometricPrecision; }
-    .legend-title { font-size: 14px; font-weight: 700; }
-    .legend-label { font-size: 12px; font-weight: 500; }
-  </style>
   <rect width="100%" height="100%" fill="white"/>
-  <text x="10" y="18" class="legend-title">Legend</text>${rows}
+  ${createAlphabetTextSvg({ text: "Legend", x: 10, top: 4, size: 15 })}${rows}
 </svg>`;
 };
 
@@ -171,7 +214,6 @@ export const appendBitmapLegend = (
         height: legendHeight,
         legend: debugRender.legend,
       }),
-      { loadSystemFonts: true },
     ),
   );
   if (
