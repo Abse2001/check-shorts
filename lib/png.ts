@@ -1,8 +1,10 @@
 import { deflateSync } from "node:zlib";
+import { decode } from "fast-png";
 import type {
   BitmapShortDebugLegendEntry,
   BitmapShortDebugRender,
 } from "./bitmap-short-detector";
+import { renderSvgToPng } from "./svg-to-png";
 
 const crcTable = new Uint32Array(256);
 
@@ -90,151 +92,68 @@ export const encodeRgbaPng = ({
   ]);
 };
 
-const glyphs: Record<string, string[]> = {
-  " ": ["000", "000", "000", "000", "000"],
-  ".": ["0", "0", "0", "0", "1"],
-  ":": ["0", "1", "0", "1", "0"],
-  _: ["000", "000", "000", "000", "111"],
-  "-": ["000", "000", "111", "000", "000"],
-  ">": ["100", "010", "001", "010", "100"],
-  "/": ["001", "001", "010", "100", "100"],
-  "0": ["111", "101", "101", "101", "111"],
-  "1": ["010", "110", "010", "010", "111"],
-  "2": ["111", "001", "111", "100", "111"],
-  "3": ["111", "001", "111", "001", "111"],
-  "4": ["101", "101", "111", "001", "001"],
-  "5": ["111", "100", "111", "001", "111"],
-  "6": ["111", "100", "111", "101", "111"],
-  "7": ["111", "001", "010", "010", "010"],
-  "8": ["111", "101", "111", "101", "111"],
-  "9": ["111", "101", "111", "001", "111"],
-  A: ["010", "101", "111", "101", "101"],
-  B: ["110", "101", "110", "101", "110"],
-  C: ["011", "100", "100", "100", "011"],
-  D: ["110", "101", "101", "101", "110"],
-  E: ["111", "100", "110", "100", "111"],
-  F: ["111", "100", "110", "100", "100"],
-  G: ["011", "100", "101", "101", "011"],
-  H: ["101", "101", "111", "101", "101"],
-  I: ["111", "010", "010", "010", "111"],
-  J: ["001", "001", "001", "101", "111"],
-  K: ["101", "101", "110", "101", "101"],
-  L: ["100", "100", "100", "100", "111"],
-  M: ["101", "111", "111", "101", "101"],
-  N: ["101", "111", "111", "111", "101"],
-  O: ["111", "101", "101", "101", "111"],
-  P: ["111", "101", "111", "100", "100"],
-  Q: ["111", "101", "101", "111", "001"],
-  R: ["110", "101", "110", "101", "101"],
-  S: ["111", "100", "111", "001", "111"],
-  T: ["111", "010", "010", "010", "010"],
-  U: ["101", "101", "101", "101", "111"],
-  V: ["101", "101", "101", "101", "010"],
-  W: ["101", "101", "111", "111", "101"],
-  X: ["101", "101", "010", "101", "101"],
-  Y: ["101", "101", "010", "010", "010"],
-  Z: ["111", "001", "010", "100", "111"],
-};
-
-const setPixel = (
-  rgba: Uint8Array,
-  width: number,
-  x: number,
-  y: number,
-  color: [number, number, number],
-) => {
-  const offset = (y * width + x) * 4;
-  rgba[offset] = color[0];
-  rgba[offset + 1] = color[1];
-  rgba[offset + 2] = color[2];
-  rgba[offset + 3] = 255;
-};
-
-const fillRect = ({
-  rgba,
-  width,
-  x,
-  y,
-  rectWidth,
-  rectHeight,
-  color,
-}: {
-  rgba: Uint8Array;
-  width: number;
-  x: number;
-  y: number;
-  rectWidth: number;
-  rectHeight: number;
-  color: [number, number, number];
-}) => {
-  for (let yy = y; yy < y + rectHeight; yy++) {
-    for (let xx = x; xx < x + rectWidth; xx++) {
-      setPixel(rgba, width, xx, yy, color);
-    }
-  }
-};
-
-const drawText = ({
-  rgba,
-  width,
-  x,
-  y,
-  text,
-  color,
-  scale = 2,
-}: {
-  rgba: Uint8Array;
-  width: number;
-  x: number;
-  y: number;
-  text: string;
-  color: [number, number, number];
-  scale?: number;
-}) => {
-  let cursorX = x;
-
-  for (const char of text.toUpperCase()) {
-    const glyph = glyphs[char] ?? glyphs[" "]!;
-
-    for (let gy = 0; gy < glyph.length; gy++) {
-      const row = glyph[gy]!;
-      for (let gx = 0; gx < row.length; gx++) {
-        if (row[gx] !== "1") continue;
-        fillRect({
-          rgba,
-          width,
-          x: cursorX + gx * scale,
-          y: y + gy * scale,
-          rectWidth: scale,
-          rectHeight: scale,
-          color,
-        });
-      }
-    }
-
-    cursorX += (glyph[0]!.length + 1) * scale;
-  }
-};
-
 const getLegendLabel = (entry: BitmapShortDebugLegendEntry): string => {
   const labels =
     entry.labels.length > 0 ? entry.labels.join(",") : entry.connectivityKey;
   return labels.length > 36 ? `${labels.slice(0, 33)}...` : labels;
 };
 
+const escapeXml = (value: string): string =>
+  value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+
+const markerLegend = [
+  { color: "#ff00ff", label: "Short marker" },
+  { color: "#ffa500", label: "PCB port" },
+  { color: "#000000", label: "Unassigned" },
+] as const;
+
+const createBitmapLegendSvg = ({
+  width,
+  height,
+  legend,
+}: {
+  width: number;
+  height: number;
+  legend: BitmapShortDebugLegendEntry[];
+}): string => {
+  const headerHeight = 26;
+  const rowHeight = 20;
+  const rows = [
+    ...markerLegend.map(
+      (entry, index) => `
+    <rect x="10" y="${headerHeight + index * rowHeight + 3}" width="14" height="10" rx="1" fill="${entry.color}"/>
+    <text x="32" y="${headerHeight + index * rowHeight + 13}" class="legend-label">${entry.label}</text>`,
+    ),
+    ...legend.map(
+      (entry, index) => `
+    <rect x="10" y="${headerHeight + (markerLegend.length + index) * rowHeight + 3}" width="14" height="10" rx="1" fill="rgb(${entry.color.join(",")})"/>
+    <text x="32" y="${headerHeight + (markerLegend.length + index) * rowHeight + 13}" class="legend-label">${escapeXml(getLegendLabel(entry))}</text>`,
+    ),
+  ].join("");
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+  <style>
+    text { font-family: Arial, Helvetica, sans-serif; fill: #111; text-rendering: geometricPrecision; }
+    .legend-title { font-size: 14px; font-weight: 700; }
+    .legend-label { font-size: 12px; font-weight: 500; }
+  </style>
+  <rect width="100%" height="100%" fill="white"/>
+  <text x="10" y="18" class="legend-title">Legend</text>${rows}
+</svg>`;
+};
+
 export const appendBitmapLegend = (
   debugRender: BitmapShortDebugRender,
 ): BitmapShortDebugRender => {
-  const rowHeight = 18;
-  const legendRows = Math.max(1, debugRender.legend.length + 2);
-  const legendHeight = legendRows * rowHeight + 8;
+  const legendHeight =
+    34 + (markerLegend.length + debugRender.legend.length) * 20;
   const width = debugRender.width;
   const height = debugRender.height + legendHeight;
   const rgba = new Uint8Array(width * height * 4);
-
-  for (let i = 0; i < width * height; i++) {
-    setPixel(rgba, width, i % width, Math.floor(i / width), [255, 255, 255]);
-  }
 
   for (let y = 0; y < debugRender.height; y++) {
     rgba.set(
@@ -245,45 +164,25 @@ export const appendBitmapLegend = (
       y * width * 4,
     );
   }
-
-  const legendY = debugRender.height + 8;
-  drawText({
-    rgba,
-    width,
-    x: 10,
-    y: legendY,
-    text: "LEGEND",
-    color: [0, 0, 0],
-  });
-  drawText({
-    rgba,
-    width,
-    x: 96,
-    y: legendY,
-    text: "MAGENTA:SHORT MARKER ORANGE:PORT BLACK:UNASSIGNED",
-    color: [0, 0, 0],
-  });
-
-  debugRender.legend.forEach((entry, index) => {
-    const y = legendY + rowHeight * (index + 1);
-    fillRect({
-      rgba,
-      width,
-      x: 10,
-      y,
-      rectWidth: 14,
-      rectHeight: 10,
-      color: entry.color,
-    });
-    drawText({
-      rgba,
-      width,
-      x: 32,
-      y,
-      text: getLegendLabel(entry),
-      color: [0, 0, 0],
-    });
-  });
+  const legendPng = decode(
+    renderSvgToPng(
+      createBitmapLegendSvg({
+        width,
+        height: legendHeight,
+        legend: debugRender.legend,
+      }),
+      { loadSystemFonts: true },
+    ),
+  );
+  if (
+    legendPng.width !== width ||
+    legendPng.height !== legendHeight ||
+    legendPng.channels !== 4 ||
+    legendPng.depth !== 8
+  ) {
+    throw new Error("Unable to render bitmap debug legend");
+  }
+  rgba.set(legendPng.data, debugRender.height * width * 4);
 
   return { ...debugRender, width, height, rgba };
 };

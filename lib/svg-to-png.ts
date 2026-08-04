@@ -1,9 +1,12 @@
 import { Resvg } from "@resvg/resvg-js";
 
-export const renderSvgToPng = (svg: string): Uint8Array => {
+export const renderSvgToPng = (
+  svg: string,
+  options: { loadSystemFonts?: boolean } = {},
+): Uint8Array => {
   const resvg = new Resvg(svg, {
     background: "rgba(0, 0, 0, 0)",
-    font: { loadSystemFonts: false },
+    font: { loadSystemFonts: options.loadSystemFonts ?? false },
   });
   return new Uint8Array(resvg.render().asPng());
 };
